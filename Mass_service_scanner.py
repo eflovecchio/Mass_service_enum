@@ -17,6 +17,10 @@ def scan_ip_port(ip, port):
         print(f'Error al escanear {ip} en el puerto {port}: {e}')
     return None
 
+def write_to_file(filename, data):
+    with open(filename, 'a') as file:
+        file.write(data + '\n')
+
 def main(targets_file, ports_input):
     try:
         # Leer objetivos desde el archivo
@@ -30,33 +34,30 @@ def main(targets_file, ports_input):
         else:
             ports = [int(port) for port in ports_input.split(',')]
 
+        print(f'Escaneando IPs desde el archivo: {targets_file}')
+        print(f'Escaneando puertos: {ports}')
+
         # Escanear IPs y puertos concurrentemente con un número alto de hilos
-        open_ports = {}
+        open_ports = defaultdict(list)
         with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:  # Ajustar el número de hilos según tus necesidades
             futures = []
             for ip in targets:
                 for port in ports:
                     futures.append(executor.submit(scan_ip_port, ip, port))
             
+            print(f'Iniciando escaneo de {len(futures)} combinaciones de IP y puerto...')
+
             for future in concurrent.futures.as_completed(futures):
                 try:
                     result = future.result()
                     if result:
                         ip, port, service = result
-                        if port not in open_ports:
-                            open_ports[port] = []
                         open_ports[port].append((ip, service))
+                        write_to_file(f'{port}_abierto.txt', ip)
+                        write_to_file(f'{port}_abierto_detalle_servicio.txt', f'{ip} - {service}')
+                        print(f'Encontrado servicio abierto en {ip}:{port} - {service}')
                 except Exception as e:
                     print(f'Error al obtener el resultado de un escaneo: {e}')
-
-        # Escribir resultados a archivos
-        for port, details in open_ports.items():
-            with open(f'{port}_abierto.txt', 'w') as file:
-                for detail in details:
-                    file.write(f'{detail[0]}\n')
-            with open(f'{port}_abierto_detalle_servicio.txt', 'w') as file:
-                for detail in details:
-                    file.write(f'{detail[0]} - {detail[1]}\n')
 
         # Obtener más detalles sobre los servicios encontrados
         with open('resultado.txt', 'w') as result_file:
@@ -70,19 +71,21 @@ def main(targets_file, ports_input):
                 
                 result_file.write(f'Puerto {port}: {lines_count} IPs encontradas\n')
                 
-                services = defaultdict(set)
+                services_count = defaultdict(int)
                 for ip, service in open_ports[port]:
-                    services[service].add(ip)
+                    services_count[service] += 1
                 
-                result_file.write(f'Servicios únicos en el puerto {port}:\n')
-                for service in sorted(services):
-                    result_file.write(f'{service}\n')
+                sorted_services = sorted(services_count.items(), key=lambda item: item[1], reverse=True)
+                
+                result_file.write(f'Servicios en el puerto {port}:\n')
+                for service, count in sorted_services:
+                    result_file.write(f'{count} - {service}\n')
 
                 result_file.write('**********************************\n')
 
         # Mostrar contenido de resultado.txt al finalizar
         with open('resultado.txt', 'r') as result_file:
-            print(result_file.read())
+            print('\n' + result_file.read())
 
     except Exception as e:
         print(f'Ocurrió un error: {e}')
